@@ -63,7 +63,6 @@ export function DashboardCharts() {
       setAttendanceTrend(trendData);
     } catch (error) {
       console.error('Error fetching attendance trend:', error);
-      // Set sample data for demo
       setAttendanceTrend([
         { date: '01/01', present: 1, late: 0, absent: 0 },
         { date: '02/01', present: 1, late: 0, absent: 0 },
@@ -92,12 +91,12 @@ export function DashboardCharts() {
       // Count by leave type
       const annual = data?.filter(l => l.leave_type === 'annual').length || 0;
       const sick = data?.filter(l => l.leave_type === 'sick').length || 0;
-      const special = data?.filter(l => l.leave_type === 'special').length || 0;
+      const other = data?.filter(l => !['annual', 'sick'].includes(l.leave_type)).length || 0;
 
       const leaveData = [
         { name: 'Cuti Tahunan', value: annual, color: 'hsl(217, 91%, 60%)' },
         { name: 'Cuti Sakit', value: sick, color: 'hsl(0, 84%, 60%)' },
-        { name: 'Cuti Khusus', value: special, color: 'hsl(142, 76%, 36%)' },
+        { name: 'Cuti Lainnya', value: other, color: 'hsl(142, 76%, 36%)' },
       ].filter(item => item.value > 0);
 
       setLeaveUsage(leaveData.length > 0 ? leaveData : [
@@ -119,7 +118,7 @@ export function DashboardCharts() {
 
       const { data, error } = await supabase
         .from('overtime_requests')
-        .select('date, duration_minutes, calculated_overtime_pay')
+        .select('date, duration_minutes')
         .eq('user_id', user?.id)
         .eq('status', 'approved')
         .gte('date', startDate)
@@ -139,12 +138,11 @@ export function DashboardCharts() {
         }) || [];
 
         const totalHours = weekData.reduce((sum, o) => sum + (o.duration_minutes / 60), 0);
-        const totalPay = weekData.reduce((sum, o) => sum + (o.calculated_overtime_pay || 0), 0);
 
         return {
           name: week,
           hours: Math.round(totalHours * 10) / 10,
-          pay: totalPay,
+          pay: 0, // No calculated pay column in current schema
         };
       });
 
@@ -152,10 +150,10 @@ export function DashboardCharts() {
     } catch (error) {
       console.error('Error fetching overtime data:', error);
       setOvertimeData([
-        { name: 'Minggu 1', hours: 4, pay: 200000 },
-        { name: 'Minggu 2', hours: 3, pay: 150000 },
-        { name: 'Minggu 3', hours: 5, pay: 250000 },
-        { name: 'Minggu 4', hours: 2, pay: 100000 },
+        { name: 'Minggu 1', hours: 4, pay: 0 },
+        { name: 'Minggu 2', hours: 3, pay: 0 },
+        { name: 'Minggu 3', hours: 5, pay: 0 },
+        { name: 'Minggu 4', hours: 2, pay: 0 },
       ]);
     }
   };

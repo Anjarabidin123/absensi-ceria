@@ -10,16 +10,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from '@/hooks/use-toast';
 import { useGeolocation } from '@/hooks/useGeolocation';
 import { useCamera } from '@/hooks/useCamera';
-import { Loader2, Camera, MapPin, CheckCircle2, LogIn, LogOut, RefreshCw, Smartphone, ChevronLeft, Map, AlertOctagon, X, Clock, Info } from 'lucide-react';
+import { Loader2, Camera, MapPin, CheckCircle2, LogIn, LogOut, RefreshCw, ChevronLeft, AlertOctagon, Clock, Info } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { format } from 'date-fns';
 import { id } from 'date-fns/locale';
 import { Attendance, OfficeLocation, WorkMode, EmployeeSchedule } from '@/types';
 import { cn } from '@/lib/utils';
-import { Dialog, DialogContent, DialogTrigger } from '@/components/ui/dialog';
+import { Dialog, DialogContent } from '@/components/ui/dialog';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { MapContainer, TileLayer, Marker, Circle, useMap, Popup } from 'react-leaflet';
-import L from 'leaflet';
 
 // Utility to calculate distance between two coordinates in meters (Haversine Formula)
 function getDistanceFromLatLonInM(lat1: number, lon1: number, lat2: number, lon2: number) {
@@ -39,32 +37,45 @@ function deg2rad(deg: number) {
   return deg * (Math.PI / 180);
 }
 
-// Fix Leaflet Icon
-// @ts-ignore
-import iconMarker from 'leaflet/dist/images/marker-icon.png';
-// @ts-ignore
-import iconRetina from 'leaflet/dist/images/marker-icon-2x.png';
-// @ts-ignore
-import iconShadow from 'leaflet/dist/images/marker-shadow.png';
-
-const DefaultIcon = L.icon({
-  iconRetinaUrl: iconRetina,
-  iconUrl: iconMarker,
-  shadowUrl: iconShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
-  shadowSize: [41, 41]
-});
-L.Marker.prototype.options.icon = DefaultIcon;
-
-// Component to recenter map
-function MapController({ lat, long }: { lat: number; long: number }) {
-  const map = useMap();
-  useEffect(() => {
-    map.flyTo([lat, long], 16);
-  }, [lat, long, map]);
-  return null;
+// Simple Static Map Component using OpenStreetMap iframe embed
+function StaticMapView({ 
+  latitude, 
+  longitude, 
+  officeLocation, 
+  isValid 
+}: { 
+  latitude: number; 
+  longitude: number; 
+  officeLocation?: OfficeLocation | null;
+  isValid: boolean;
+}) {
+  // Use OpenStreetMap static image
+  const mapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${longitude - 0.005},${latitude - 0.003},${longitude + 0.005},${latitude + 0.003}&layer=mapnik&marker=${latitude},${longitude}`;
+  
+  return (
+    <div className="relative w-full h-full rounded-xl overflow-hidden">
+      <iframe
+        src={mapUrl}
+        className="w-full h-full border-0"
+        loading="lazy"
+        title="Location Map"
+      />
+      {/* Overlay with location info */}
+      <div className="absolute bottom-2 left-2 right-2 bg-white/90 backdrop-blur-sm rounded-lg p-2 shadow-sm">
+        <div className="flex items-center gap-2">
+          <MapPin className={cn("h-4 w-4", isValid ? "text-green-600" : "text-red-500")} />
+          <span className="text-[10px] font-bold text-slate-600">
+            {latitude.toFixed(5)}, {longitude.toFixed(5)}
+          </span>
+        </div>
+        {officeLocation && (
+          <div className="text-[9px] text-slate-500 mt-1">
+            📍 {officeLocation.name}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function AttendancePage() {
@@ -163,15 +174,8 @@ export default function AttendancePage() {
       setTodayAttendance(attendanceData as Attendance | null);
       setNotes((attendanceData as Attendance | null)?.notes || '');
 
-      // Fetch Today's Schedule for Shift-based attendance
-      const { data: scheduleData } = await (supabase
-        .from('employee_schedules') as any)
-        .select('*, shift:shifts(*)')
-        .eq('user_id', user.id)
-        .eq('date', today)
-        .maybeSingle();
-
-      setTodaySchedule(scheduleData as EmployeeSchedule | null);
+      // Set default schedule (no employee_schedules table yet)
+      setTodaySchedule(null);
 
       // Fetch Office Locations
       const { data: locationData } = await supabase
@@ -515,38 +519,12 @@ export default function AttendancePage() {
                   {/* Map Integration */}
                   {latitude && longitude ? (
                     <div className="h-44 w-full rounded-[24px] overflow-hidden border border-slate-100 relative z-0 shadow-inner">
-                      {(MapContainer as any) && (
-                        <MapContainer
-                          center={[latitude, longitude] as any}
-                          zoom={16}
-                          style={{ height: '100%', width: '100%' }}
-                          dragging={false}
-                          scrollWheelZoom={false}
-                        >
-                          <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution='&copy; OSM' {...{ attribution: '&copy; OSM' } as any} />
-                          <MapController lat={latitude} long={longitude} />
-                          <Marker position={[latitude, longitude] as any}>
-                            <Popup>Posisi Anda</Popup>
-                          </Marker>
-                          {workMode === 'wfo' && selectedLocationId && (() => {
-                            const office = officeLocations.find(l => l.id === selectedLocationId);
-                            if (office) {
-                              return (
-                                <>
-                                  <Marker position={[office.latitude, office.longitude] as any}>
-                                    <Popup>{office.name}</Popup>
-                                  </Marker>
-                                  <Circle
-                                    center={[office.latitude, office.longitude] as any}
-                                    radius={MAX_RADIUS_M}
-                                    pathOptions={{ fillColor: isLocationValid ? '#3b82f6' : '#ef4444', color: isLocationValid ? '#3b82f6' : '#ef4444', opacity: 0.1, weight: 1 }}
-                                  />
-                                </>
-                              )
-                            }
-                          })()}
-                        </MapContainer>
-                      )}
+                      <StaticMapView
+                        latitude={latitude}
+                        longitude={longitude}
+                        officeLocation={workMode === 'wfo' ? officeLocations.find(l => l.id === selectedLocationId) : null}
+                        isValid={isLocationValid}
+                      />
                     </div>
                   ) : (
                     <div className="h-44 w-full rounded-[24px] bg-slate-50 border border-slate-100 flex flex-col items-center justify-center text-[10px] text-slate-400 font-bold uppercase tracking-widest gap-2">
