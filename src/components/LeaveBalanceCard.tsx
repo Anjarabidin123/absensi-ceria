@@ -4,55 +4,64 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Calendar, AlertCircle } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
-import { LeaveBalance } from '@/types';
 import { Skeleton } from '@/components/ui/skeleton';
 
 interface LeaveBalanceCardProps {
   userId: string;
 }
 
+// Simple leave balance based on leave_requests table
+interface LeaveStats {
+  annual_used: number;
+  sick_used: number;
+  other_used: number;
+  annual_quota: number;
+}
+
 export function LeaveBalanceCard({ userId }: LeaveBalanceCardProps) {
-  const [balance, setBalance] = useState<LeaveBalance | null>(null);
+  const [stats, setStats] = useState<LeaveStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchBalance();
+    fetchLeaveStats();
   }, [userId]);
 
-  const fetchBalance = async () => {
+  const fetchLeaveStats = async () => {
     try {
       const currentYear = new Date().getFullYear();
+      const startOfYear = `${currentYear}-01-01`;
+      const endOfYear = `${currentYear}-12-31`;
       
+      // Get approved leave requests for this year
       const { data, error } = await supabase
-        .from('leave_balances')
-        .select('*')
+        .from('leave_requests')
+        .select('leave_type, total_days')
         .eq('user_id', userId)
-        .eq('year', currentYear)
-        .maybeSingle();
+        .eq('status', 'approved')
+        .gte('start_date', startOfYear)
+        .lte('end_date', endOfYear);
 
       if (error) throw error;
 
-      if (!data) {
-        // Initialize balance if not exists
-        const { data: newBalance, error: insertError } = await supabase
-          .from('leave_balances')
-          .insert({
-            user_id: userId,
-            year: currentYear,
-            annual_quota: 12,
-            annual_used: 0,
-            annual_remaining: 12,
-          })
-          .select()
-          .single();
+      // Calculate totals
+      const annual = data?.filter(l => l.leave_type === 'annual').reduce((sum, l) => sum + l.total_days, 0) || 0;
+      const sick = data?.filter(l => l.leave_type === 'sick').reduce((sum, l) => sum + l.total_days, 0) || 0;
+      const other = data?.filter(l => !['annual', 'sick'].includes(l.leave_type)).reduce((sum, l) => sum + l.total_days, 0) || 0;
 
-        if (insertError) throw insertError;
-        setBalance(newBalance as LeaveBalance);
-      } else {
-        setBalance(data as LeaveBalance);
-      }
+      setStats({
+        annual_used: annual,
+        sick_used: sick,
+        other_used: other,
+        annual_quota: 12, // Default annual quota
+      });
     } catch (error) {
-      console.error('Error fetching leave balance:', error);
+      console.error('Error fetching leave stats:', error);
+      setStats({
+        annual_used: 0,
+        sick_used: 0,
+        other_used: 0,
+        annual_quota: 12,
+      });
     } finally {
       setLoading(false);
     }
@@ -72,10 +81,11 @@ export function LeaveBalanceCard({ userId }: LeaveBalanceCardProps) {
     );
   }
 
-  if (!balance) return null;
+  if (!stats) return null;
 
-  const usagePercentage = (balance.annual_used / balance.annual_quota) * 100;
-  const isLowBalance = balance.annual_remaining <= 3;
+  const annual_remaining = stats.annual_quota - stats.annual_used;
+  const usagePercentage = (stats.annual_used / stats.annual_quota) * 100;
+  const isLowBalance = annual_remaining <= 3;
 
   return (
     <Card className="hover:shadow-md transition-shadow">
@@ -92,7 +102,7 @@ export function LeaveBalanceCard({ userId }: LeaveBalanceCardProps) {
             </Badge>
           )}
         </div>
-        <CardDescription>Tahun {balance.year}</CardDescription>
+        <CardDescription>Tahun {new Date().getFullYear()}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {/* Annual Leave */}
@@ -100,12 +110,12 @@ export function LeaveBalanceCard({ userId }: LeaveBalanceCardProps) {
           <div className="flex items-center justify-between text-sm">
             <span className="text-muted-foreground">Cuti Tahunan</span>
             <span className="font-semibold">
-              {balance.annual_remaining} / {balance.annual_quota} hari
+              {annual_remaining} / {stats.annual_quota} hari
             </span>
           </div>
           <Progress value={usagePercentage} className="h-2" />
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Terpakai: {balance.annual_used} hari</span>
+            <span>Terpakai: {stats.annual_used} hari</span>
             <span>{Math.round(usagePercentage)}%</span>
           </div>
         </div>
@@ -115,11 +125,11 @@ export function LeaveBalanceCard({ userId }: LeaveBalanceCardProps) {
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
               <p className="text-muted-foreground">Sakit</p>
-              <p className="text-lg font-semibold">{balance.sick_used} hari</p>
+              <p className="text-lg font-semibold">{stats.sick_used} hari</p>
             </div>
             <div>
-              <p className="text-muted-foreground">Izin Khusus</p>
-              <p className="text-lg font-semibold">{balance.special_leave_used} hari</p>
+              <p className="text-muted-foreground">Izin Lainnya</p>
+              <p className="text-lg font-semibold">{stats.other_used} hari</p>
             </div>
           </div>
         </div>
@@ -127,7 +137,7 @@ export function LeaveBalanceCard({ userId }: LeaveBalanceCardProps) {
         {isLowBalance && (
           <div className="pt-3 border-t">
             <p className="text-xs text-destructive">
-              ⚠️ Saldo cuti tahunan Anda tinggal {balance.annual_remaining} hari
+              ⚠️ Saldo cuti tahunan Anda tinggal {annual_remaining} hari
             </p>
           </div>
         )}
